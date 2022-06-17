@@ -1,0 +1,5 @@
+rd_enabled = true
+fleet_id = "22b94a5a-6494-4123-a130-ec76e9610a39"
+
+[build]
+sccache = "/home/mdrokz/.cargo/bin/sccache"
