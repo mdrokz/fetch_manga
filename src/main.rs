@@ -1,18 +1,40 @@
 // #![feature(async_closure)]
 
-use async_std::prelude::StreamExt;
-use chromiumoxide::{cdp::browser_protocol::target::CreateTargetParams, Browser, BrowserConfig};
+use std::{io::Write, time::Duration,collections::VecDeque};
+
+use async_once::AsyncOnce;
+use fantoccini::{Client, ClientBuilder, Locator};
+
 // use scraper::{Html, Selector};
+
+#[macro_use]
+extern crate lazy_static;
 
 const BASE_URL: &str = "https://mangasee123.com";
 
-#[derive(Debug, Clone)]
-pub struct Chapter {
-    name: String,
-    images: Vec<String>,
+#[macro_use]
+mod json;
+
+use crate::json::Json;
+use crate::json::Value;
+use std::fmt::Display;
+
+json! {
+    Chapter,
+    name => String,
+    images => String
 }
 
-#[async_std::main]
+lazy_static! {
+    static ref CLIENT: AsyncOnce<Client> = AsyncOnce::new(async {
+        ClientBuilder::native()
+            .connect("http://localhost:9515")
+            .await
+            .expect("failed to connect to WebDriver")
+    });
+}
+
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args();
 
@@ -22,70 +44,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .next()
         .map_or(Err("Argument manga name is missing"), |f| Ok(f))?;
 
-    let (browser, mut handler) =
-        Browser::launch(BrowserConfig::builder().with_head().build()?).await?;
+    let c = CLIENT.get().await;
 
-    let handle = async_std::task::spawn(async move {
-        loop {
-            let _event = handler.next().await.unwrap();
-        }
-    });
-
-    let page = &browser
-    .new_page(format!(
-        "{}/manga/{}",
-        BASE_URL, manga_name
-    ))
-    .await?;
-
-    page.evaluate("window.stop()").await?;
+    c.goto(&format!("{}/manga/{}", BASE_URL, manga_name))
+        .await?;
 
     let mut chapters = vec![];
+    let mut index = 1;
 
-    let show_all_chapters = page.find_element(".ShowAllChapters").await?;
+    let show_all_chapters = c.find(Locator::Css(".ShowAllChapters")).await?;
 
     show_all_chapters.click().await?;
 
-    let chapter_link_elements = page.find_elements(".top-10>a").await?;
+    let chapter_link_elements = c.find_all(Locator::Css(".top-10>a")).await?;
 
-    for (i, chapter) in chapter_link_elements.iter().enumerate() {
-        let href = chapter.attribute("href").await?;
+    let mut chapter_links = VecDeque::with_capacity(chapter_link_elements.len());
 
-        if let Some(link) = href {
-            let image_page = browser
-                .new_page(CreateTargetParams::new(format!("{}{}", BASE_URL, link)))
-                .await?;
-
-            let button = &image_page.find_elements(".Column>.btn-sm").await?[3];
-
-            button.click().await?;
-
-            let images = image_page.find_elements(".ng-scope>div>img").await?;
-
-            let mut image_links = vec![];
-
-            for image in images {
-                let src = image.attribute("src").await?;
-
-                if let Some(link) = src {
-                    image_links.push(link);
-                }
-            }
-
-            chapters.push(Chapter {
-                name: format!("Chapter {}", i),
-                images: image_links,
-            });
-
-            println!("{:?}",chapters);
-
-            image_page.close().await?;
-        }
+    for chapter_link in chapter_link_elements {
+        chapter_links.push_front(tokio::spawn(async move {
+            let link = chapter_link
+                .attr("href")
+                .await
+                .map_or(String::new(), |f| f.expect("failed to extract href"));
+            link
+        }));
     }
 
-    println!("{:?}", chapters);
 
-    handle.await;
+    for chapter in chapter_links {
+        let href = chapter.await?;
+
+        if !href.contains("read-online") {
+            continue;
+        }
+
+        tokio::spawn(async move {
+            c.goto(&format!("{}{}", BASE_URL, href))
+                .await
+                .expect("failed to navigate")
+        });
+
+        tokio::time::sleep(Duration::from_millis(5000)).await;
+
+        let button = &c.find_all(Locator::Css(".Column>.btn-sm")).await?[3];
+
+        button.click().await?;
+
+        let images = c.find_all(Locator::Css(".ng-scope>div>img")).await?;
+
+        let mut image_links = vec![];
+
+        for image in images {
+            let src = image.attr("src").await?;
+
+            if let Some(link) = src {
+                image_links.push(link);
+            }
+        }
+
+        chapters.push(Chapter {
+            name: Value::String(format!("Chapter_{}", index)),
+            images: Value::Array(image_links),
+        });
+
+        index += 1;
+    }
+
+    let chapters: Vec<String> = chapters.iter().map(|x| x.serialize()).collect();
+
+    let mut json_file = std::fs::File::create("./chapters.json")?;
+
+    json_file.write_all(format!("{:?}", chapters).as_bytes())?;
 
     Ok(())
 }
