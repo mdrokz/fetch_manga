@@ -1,9 +1,11 @@
 // #![feature(async_closure)]
 
-use std::{io::Write, time::Duration,collections::VecDeque};
+use std::path::Path;
+use std::{collections::VecDeque, io::Write, time::Duration};
 
 use async_once::AsyncOnce;
 use fantoccini::{Client, ClientBuilder, Locator};
+use std::fs::{create_dir,DirBuilder, File, read_dir};
 
 // use scraper::{Html, Selector};
 
@@ -70,7 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     }
 
-
     for chapter in chapter_links {
         let href = chapter.await?;
 
@@ -94,10 +95,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut image_links = vec![];
 
+        let chapter_dir = format!("Chapters/Chapter_{}", index);
+
+        if let Err(_) = read_dir(&chapter_dir) {
+            create_dir(&chapter_dir)?;
+        }
+
+
         for image in images {
             let src = image.attr("src").await?;
 
             if let Some(link) = src {
+                let name = link
+                    .split("/")
+                    .last()
+                    .ok_or("chapter name is missing from link")?;
+
+                let bytes = image.screenshot().await?;
+
+                let mut chapter_file =
+                    File::create(format!("Chapters/Chapter_{}/{}", index, name))?;
+
+                chapter_file.write_all(&bytes)?;
+
                 image_links.push(link);
             }
         }
@@ -114,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut json_file = std::fs::File::create("./chapters.json")?;
 
-    json_file.write_all(format!("{:?}", chapters).as_bytes())?;
+    json_file.write_all(format!("{:?}", chapters).replace("\\", "").as_bytes())?;
 
     Ok(())
 }
