@@ -1,11 +1,10 @@
 // #![feature(async_closure)]
 
-use std::path::Path;
 use std::{collections::VecDeque, io::Write, time::Duration};
 
 use async_once::AsyncOnce;
 use fantoccini::{Client, ClientBuilder, Locator};
-use std::fs::{create_dir,DirBuilder, File, read_dir};
+use std::fs::{create_dir, File, read_dir};
 
 // use scraper::{Html, Selector};
 
