@@ -19,7 +19,8 @@
                     "kind": "bin"
                 }
             },
-            "args": ["Ou-no-Kemono"],
+            // "args": ["Ou-no-Kemono"],
+            "args": ["Martial-Peak","manga"],
             "cwd": "${workspaceFolder}"
         },
         {
