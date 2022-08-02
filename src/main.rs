@@ -4,7 +4,7 @@ use std::{collections::VecDeque, io::Write, time::Duration};
 
 use async_once::AsyncOnce;
 use fantoccini::{Client, ClientBuilder, Locator};
-use std::fs::{create_dir, File, read_dir};
+use std::fs::{create_dir_all,read_dir, File};
 
 // use scraper::{Html, Selector};
 
@@ -35,6 +35,35 @@ lazy_static! {
     });
 }
 
+#[derive(Debug, Default, Clone)]
+enum MangaType {
+    #[default]
+    Manga,
+    Manhwa,
+    Manhua,
+}
+
+impl Into<MangaType> for String {
+    fn into(self) -> MangaType {
+        match self.as_str() {
+            "manga" => MangaType::Manga,
+            "manhwa" => MangaType::Manhwa,
+            "manhua" => MangaType::Manhua,
+            _ => MangaType::Manga,
+        }
+    }
+}
+
+impl Into<String> for MangaType {
+    fn into(self) -> String {
+        match self {
+            MangaType::Manga => "manga".into(),
+            MangaType::Manhwa => "manhwa".into(),
+            MangaType::Manhua => "manhua".into(),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args();
@@ -44,6 +73,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manga_name = args
         .next()
         .map_or(Err("Argument manga name is missing"), |f| Ok(f))?;
+
+    let manga_type = args
+        .next()
+        .map(|f| (Into::<MangaType>::into(f)))
+        .map_or(Err("Argument manga type is missing"), |f| Ok(f))?;
+
+    let manga_dir = format!(
+        "./Dataset/{}/{}",
+        <MangaType as Into<String>>::into(manga_type),
+        manga_name
+    );
+
+    if let Err(_) = read_dir(&manga_dir) {
+        create_dir_all(&manga_dir)?;
+    }
 
     let c = CLIENT.get().await;
 
@@ -94,12 +138,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut image_links = vec![];
 
-        let chapter_dir = format!("Chapters/Chapter_{}", index);
+        let chapter_dir = format!("{}/Chapters/Chapter_{}", &manga_dir, index);
 
         if let Err(_) = read_dir(&chapter_dir) {
-            create_dir(&chapter_dir)?;
+            create_dir_all(&chapter_dir)?;
         }
-
 
         for image in images {
             let src = image.attr("src").await?;
@@ -110,14 +153,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .last()
                     .ok_or("chapter name is missing from link")?;
 
-                let bytes = image.screenshot().await?;
+                match image.screenshot().await {
+                    Ok(bytes) => {
+                        let mut chapter_file = File::create(format!(
+                            "{}/Chapters/Chapter_{}/{}",
+                            &manga_dir, index, name
+                        ))?;
+                        chapter_file.write_all(&bytes)?;
 
-                let mut chapter_file =
-                    File::create(format!("Chapters/Chapter_{}/{}", index, name))?;
-
-                chapter_file.write_all(&bytes)?;
-
-                image_links.push(link);
+                        image_links.push(link);
+                    }
+                    Err(_) => {
+                        println!("failed to download image");
+                    }
+                };
             }
         }
 
