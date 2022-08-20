@@ -8,7 +8,7 @@ pub trait Json {
         let count = iterator.clone().count();
         write!(fmt, "[").expect("failed to write opening bracket");
         for (i, v) in iterator.enumerate() {
-            write!(fmt, r#""{}""#, v).expect("failed to write value");
+            write!(fmt, r#"{}"#, v).expect("failed to write value");
             if i != count - 1 {
                 write!(fmt, ",").expect("failed to write seperator");
             }
@@ -17,7 +17,7 @@ pub trait Json {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Value<'a, T: Display + ?Json> {
     Int(i32),
     Str(&'a str),
@@ -65,6 +65,22 @@ impl<'a, T: Display + ?Json> Value<'a, T> {
 
 impl<T: Display> Display for Value<'_, T> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Array(x) => {
+                let count = x.clone().len();
+                write!(fmt, "[").expect("failed to write opening bracket");
+                for (i, v) in x.iter().enumerate() {
+                    write!(fmt, r#"{}"#, v).expect("failed to write value");
+                    if i != count - 1 {
+                        write!(fmt, ",").expect("failed to write seperator");
+                    }
+                }
+                write!(fmt, "]").expect("failed to write closing bracket");
+
+               return Ok(())
+            },
+            _ => ()
+        }
         write!(fmt, "formatted {}", "arguments")
     }
 }
