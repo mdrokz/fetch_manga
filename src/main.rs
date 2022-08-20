@@ -1,15 +1,12 @@
 // #![feature(async_closure)]
 
 use std::collections::VecDeque;
-use std::fs::OpenOptions;
 use std::future::Future;
-use std::io::Read;
-use std::path::Path;
 use std::{io::Write, time::Duration};
 
 use async_once::AsyncOnce;
 use fantoccini::{Client, ClientBuilder, Locator};
-use std::fs::{create_dir_all, read_dir, File};
+use std::fs::{create_dir_all, read_dir};
 
 #[macro_use]
 extern crate lazy_static;
@@ -94,6 +91,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     args.next();
 
+    let mut chapters = vec![];
+
+    chapters.push(Chapter {
+        name: Value::String(format!("Chapter_{}", 1)),
+        images: Value::Array(vec!["kek".into()]),
+    });
+
+    chapters.push(Chapter {
+        name: Value::String(format!("Chapter_{}", 2)),
+        images: Value::Array(vec!["kek".into()]),
+    });
+
+    // let c = Value::Array(chapters);
+
+    // println!("{}",c);
+
+
     let manga_name = args
         .next()
         .map_or(Err("Argument manga name is missing"), |f| Ok(f))?;
@@ -172,19 +186,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let src = image.attr("src").await?;
 
             if let Some(link) = src {
-                let name = link
-                    .split("/")
-                    .last()
-                    .ok_or("chapter name is missing from link")?;
-
-                let bytes = image.screenshot().await?;
-
-                let mut chapter_file = File::create(format!(
-                    "{}/Chapters/Chapter_{}/{}",
-                    &manga_dir, index, name
-                ))?;
-
-                chapter_file.write_all(&bytes)?;
+                // let name = link
+                //     .split("/")
+                //     .last()
+                //     .ok_or("chapter name is missing from link")?;
 
                 image_links.push(link);
             }
@@ -198,11 +203,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         index += 1;
     }
 
-    let chapters: Vec<String> = chapters.iter().map(|x| x.serialize()).collect();
+    // let chapters: Vec<String> = chapters.iter().map(|x| x.serialize()).collect();
+    let chapters = Value::Array(chapters);
 
-    let mut json_file = std::fs::File::create("./chapters.json")?;
+    let mut json_file = std::fs::File::create(format!("{}/chapters.json",manga_dir))?;
 
-    json_file.write_all(format!("{:?}", chapters).replace("\\", "").as_bytes())?;
+    json_file.write_all(format!("{}", chapters).replace("\\", "").as_bytes())?;
 
     Ok(())
 }
