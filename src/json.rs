@@ -1,14 +1,21 @@
 use std::fmt::Display;
 
 pub trait Json {
-    fn serialize_array<T: Iterator + Clone>(&self, fmt: &mut std::fmt::Formatter<'_>, iterator: T)
-    where
-        <T as Iterator>::Item: Display,
-    {
-        let count = iterator.clone().count();
+    fn serialize_array<T: Clone + Display + PartialEq>(
+        &self,
+        fmt: &mut std::fmt::Formatter<'_>,
+        iterator: &Vec<T>,
+    ) {
+        let count = iterator.clone().len();
         write!(fmt, "[").expect("failed to write opening bracket");
-        for (i, v) in iterator.enumerate() {
-            write!(fmt, r#"{}"#, v).expect("failed to write value");
+        for (i, v) in iterator.iter().enumerate() {
+            let x = format!("{}", v);
+
+            if x.starts_with("{") {
+                write!(fmt, "{}", x).expect("failed to write value");
+            } else {
+                write!(fmt, r#""{}""#, x).expect("failed to write value");
+            }
             if i != count - 1 {
                 write!(fmt, ",").expect("failed to write seperator");
             }
@@ -77,9 +84,9 @@ impl<T: Display> Display for Value<'_, T> {
                 }
                 write!(fmt, "]").expect("failed to write closing bracket");
 
-               return Ok(())
-            },
-            _ => ()
+                return Ok(());
+            }
+            _ => (),
         }
         write!(fmt, "formatted {}", "arguments")
     }
@@ -106,7 +113,7 @@ macro_rules! json {
                     match &self.$v {
                         Value::Array(v) => {
                             write!(fmt,"{:?}:",stringify!($v)).expect("failed to write values");
-                            self.serialize_array(fmt,v.iter());
+                            self.serialize_array(fmt,v);
                         },
                         Value::Object(v) => write!(fmt, "{:?}: {},",stringify!($v), v).expect("failed to write values"),
                         Value::Int(v) => write!(fmt, "{:?}: {},",stringify!($v), v).expect("failed to write values"),
