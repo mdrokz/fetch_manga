@@ -10,3 +10,7 @@ tokio = {version = "1",features = ["rt-multi-thread","macros"]}
 fantoccini = "0.19"
 lazy_static = "1.4.0"
 async_once = "0.2.6"
+dotenv = "0.15.0"
+rusoto_core = "0.48.0"
+rusoto_s3 = "0.48.0"
+clap = {version = "3.2.20",features = ["derive"]}
