@@ -9,8 +9,8 @@ use args::{DownloadCommand, EntityType, FetchMangaArgs, MangaType, ScrapeCommand
 use async_once::AsyncOnce;
 use clap::Parser;
 use fantoccini::{Client, ClientBuilder, Locator};
-use rusoto_core::Region;
-use rusoto_s3::{S3Client, S3, ListObjectsV2Request};
+use rusoto_core::{ByteStream, Region};
+use rusoto_s3::{GetObjectRequest, ListObjectsV2Request, Object, PutObjectRequest, S3Client, S3};
 use std::fs::{create_dir_all, read_dir};
 
 use dotenv::dotenv;
@@ -70,8 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let endpoint = std::env::var("S3_URL")?;
 
-    let name = std::env::var("S3_BUCKET")?;
+    let bucket = std::env::var("S3_BUCKET")?;
     let region = std::env::var("S3_REGION")?;
+
+    println!("AWS: {}", bucket);
+    println!("AWS: {}", region);
+    println!("AWS: {}", endpoint);
 
     let s3_client = S3Client::new(Region::ApSouth1);
 
@@ -84,18 +88,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             count,
         }) => {
             if let Some(count) = count {
-               
             } else {
+                let manga_dir = format!(
+                    "./Dataset/{}/{}/Chapters/",
+                    <MangaType as Into<String>>::into(type_m),
+                    manga_name
+                );
 
                 let list_obj_req = ListObjectsV2Request {
-                    bucket: name,
-                    start_after: Some("Dataset".to_owned()),
+                    bucket: bucket.clone(),
+                    prefix: Some(manga_dir.clone()),
                     ..Default::default()
                 };
 
                 let o = s3_client.list_objects_v2(list_obj_req).await?;
 
-                println!("{:?}", o);
+                // println!("{:?}", o);
+                if let Some(contents) = o.contents {
+                    // let filtered_contents: Vec<&Object> = contents
+                    //     .iter()
+                    //     .filter(|o| {
+                    //         let mut split = o.key.as_ref().map_or("", |f| f).split("/");
+                    //         split.next();
+
+                    //         split.next();
+
+                    //         let key = split.next().unwrap();
+
+                    //         key == manga_name
+                    //     })
+                    //     .collect();
+
+                    let chapter_dirs = read_dir(manga_dir.clone())?;
+
+                    for chapter_dir in chapter_dirs {
+                        let chapter_dir = chapter_dir?;
+                        for content in &contents {
+                            let key = content.key.as_ref().map_or(String::new(), |f| f.clone());
+                            let chapter = s3_client
+                                .get_object(GetObjectRequest {
+                                    bucket: bucket.clone(),
+                                    key: key.clone(),
+                                    ..Default::default()
+                                })
+                                .await?;
+
+                            let name = key.split("/").last().expect("failed to get file name");
+
+                            let stream = chapter.body.expect("failed to get stream");
+
+                            let mut bytes = vec![];
+
+                            let read =
+                                tokio::io::copy(&mut stream.into_async_read(), &mut bytes).await?;
+
+                            if read > 0 {
+                                std::fs::write(
+                                    format!(
+                                        "{}/{}/{}",
+                                        manga_dir,
+                                        chapter_dir.file_name().to_str().unwrap(),
+                                        name
+                                    ),
+                                    bytes,
+                                )?;
+                            }
+                        }
+                    }
+                }
             }
         }
         EntityType::Scrape(ScrapeCommand { manga_name, type_m }) => {
@@ -117,9 +177,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             c.goto(&format!("{}/manga/{}", BASE_URL, manga_name))
                 .await?;
 
-            let show_all_chapters = c.find(Locator::Css(".ShowAllChapters")).await?;
+            let show_all_chapters = c.find(Locator::Css(".ShowAllChapters")).await;
 
-            show_all_chapters.click().await?;
+            if let Ok(e) = show_all_chapters {
+                e.click().await?;
+            }
 
             let chapter_link_elements = c.find_all(Locator::Css(".top-10>a")).await?;
 
@@ -190,24 +252,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut json_file = std::fs::File::create(format!("{}/chapters.json", manga_dir))?;
 
-            json_file.write_all(format!("{}", chapters).replace("\\", "").as_bytes())?;
+            let json = format!("{}", chapters).replace("\\", "");
+
+            let res = s3_client
+                .put_object(PutObjectRequest {
+                    bucket: "machine-learning-objects".to_string(),
+                    body: Some(ByteStream::from(json.as_bytes().to_vec())),
+                    key: format!("{}/chapters.json", manga_dir).replace("./", ""),
+                    ..Default::default()
+                })
+                .await?;
+
+            println!("{:?}", res);
+
+            json_file.write_all(json.as_bytes())?;
         }
     }
-
-    // let mut chapters = vec![];
-
-    // let c = Value::Array(chapters);
-
-    // println!("{}",c);
-
-    // let manga_name = args
-    //     .next()
-    //     .map_or(Err("Argument manga name is missing"), |f| Ok(f))?;
-
-    // let manga_type = args
-    //     .next()
-    //     .map(|f| (Into::<MangaType>::into(f)))
-    //     .map_or(Err("Argument manga type is missing"), |f| Ok(f))?;
 
     Ok(())
 }
