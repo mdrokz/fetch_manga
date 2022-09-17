@@ -1,6 +1,6 @@
 // #![feature(async_closure)]
 
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::env;
 use std::future::Future;
 use std::{io::Write, time::Duration};
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(count) = count {
             } else {
                 let manga_dir = format!(
-                    "./Dataset/{}/{}/Chapters/",
+                    "Dataset/{}/{}/Chapters/",
                     <MangaType as Into<String>>::into(type_m),
                     manga_name
                 );
@@ -103,58 +103,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let o = s3_client.list_objects_v2(list_obj_req).await?;
 
-                // println!("{:?}", o);
+                println!("{:?}", o);
+
                 if let Some(contents) = o.contents {
-                    // let filtered_contents: Vec<&Object> = contents
-                    //     .iter()
-                    //     .filter(|o| {
-                    //         let mut split = o.key.as_ref().map_or("", |f| f).split("/");
-                    //         split.next();
 
-                    //         split.next();
+                    for content in &contents {
+                        let key = content.key.as_ref().map_or(String::new(), |f| f.clone());
+                        let chapter = s3_client
+                            .get_object(GetObjectRequest {
+                                bucket: bucket.clone(),
+                                key: key.clone(),
+                                ..Default::default()
+                            })
+                            .await?;
 
-                    //         let key = split.next().unwrap();
+                        let split = key.split("/");
 
-                    //         key == manga_name
-                    //     })
-                    //     .collect();
+                        let count = split.clone().count() - 2;
 
-                    let chapter_dirs = read_dir(manga_dir.clone())?;
+                        let vec = split.clone().collect::<Vec<&str>>();
 
-                    for chapter_dir in chapter_dirs {
-                        let chapter_dir = chapter_dir?;
-                        for content in &contents {
-                            let key = content.key.as_ref().map_or(String::new(), |f| f.clone());
-                            let chapter = s3_client
-                                .get_object(GetObjectRequest {
-                                    bucket: bucket.clone(),
-                                    key: key.clone(),
-                                    ..Default::default()
-                                })
-                                .await?;
+                        let dir = vec.get(count).unwrap();
 
-                            let name = key.split("/").last().expect("failed to get file name");
+                        let name = split.last().expect("failed to get file name");
 
-                            let stream = chapter.body.expect("failed to get stream");
+                        let stream = chapter.body.expect("failed to get stream");
 
-                            let mut bytes = vec![];
+                        let mut bytes = vec![];
 
-                            let read =
-                                tokio::io::copy(&mut stream.into_async_read(), &mut bytes).await?;
+                        println!(
+                            "Downloading {}",
+                            format!(
+                                "{}/{}{}",
+                                manga_dir,
+                                dir,
+                                name
+                            )
+                        );
 
-                            if read > 0 {
-                                std::fs::write(
-                                    format!(
-                                        "{}/{}/{}",
-                                        manga_dir,
-                                        chapter_dir.file_name().to_str().unwrap(),
-                                        name
-                                    ),
-                                    bytes,
-                                )?;
-                            }
+                        let read =
+                            tokio::io::copy(&mut stream.into_async_read(), &mut bytes).await?;
+
+                        if read > 0 {
+                            std::fs::write(
+                                format!(
+                                    "{}/{}/{}",
+                                    manga_dir,
+                                    dir,
+                                    name
+                                ),
+                                bytes,
+                            )?;
                         }
                     }
+
                 }
             }
         }
