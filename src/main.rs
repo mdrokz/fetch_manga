@@ -1,7 +1,6 @@
 // #![feature(async_closure)]
 
-use std::collections::{VecDeque, HashMap};
-use std::env;
+use std::collections::{VecDeque};
 use std::future::Future;
 use std::{io::Write, time::Duration};
 
@@ -10,10 +9,8 @@ use async_once::AsyncOnce;
 use clap::Parser;
 use fantoccini::{Client, ClientBuilder, Locator};
 use rusoto_core::{ByteStream, Region};
-use rusoto_s3::{GetObjectRequest, ListObjectsV2Request, Object, PutObjectRequest, S3Client, S3};
+use rusoto_s3::{GetObjectRequest, ListObjectsV2Request, PutObjectRequest, S3Client, S3};
 use std::fs::{create_dir_all, read_dir};
-
-use dotenv::dotenv;
 
 #[macro_use]
 extern crate lazy_static;
@@ -68,14 +65,11 @@ async fn async_filter<'a: 'b, 'b, T: 'a + 'b + Clone, F: Future<Output = bool>>(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv()?;
 
-    let endpoint = std::env::var("S3_URL")?;
-
     let bucket = std::env::var("S3_BUCKET")?;
     let region = std::env::var("S3_REGION")?;
 
     println!("AWS: {}", bucket);
     println!("AWS: {}", region);
-    println!("AWS: {}", endpoint);
 
     let s3_client = S3Client::new(Region::ApSouth1);
 
@@ -95,6 +89,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     manga_name
                 );
 
+                if let Err(_) = read_dir(&manga_dir) {
+                    create_dir_all(&manga_dir)?;
+                }
+
                 let list_obj_req = ListObjectsV2Request {
                     bucket: bucket.clone(),
                     prefix: Some(manga_dir.clone()),
@@ -106,7 +104,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{:?}", o);
 
                 if let Some(contents) = o.contents {
-
                     for content in &contents {
                         let key = content.key.as_ref().map_or(String::new(), |f| f.clone());
                         let chapter = s3_client
@@ -131,32 +128,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         let mut bytes = vec![];
 
-                        println!(
-                            "Downloading {}",
-                            format!(
-                                "{}/{}{}",
-                                manga_dir,
-                                dir,
-                                name
-                            )
-                        );
+                        let chapter_dir = format!("{}/{}", manga_dir, dir,);
+
+                        if let Err(_) = read_dir(&chapter_dir) {
+                            create_dir_all(&chapter_dir)?;
+                        }
+
+                        println!("Downloading {}", format!("{}/{}", chapter_dir, name));
 
                         let read =
                             tokio::io::copy(&mut stream.into_async_read(), &mut bytes).await?;
 
                         if read > 0 {
-                            std::fs::write(
-                                format!(
-                                    "{}/{}/{}",
-                                    manga_dir,
-                                    dir,
-                                    name
-                                ),
-                                bytes,
-                            )?;
+                            std::fs::write(format!("{}/{}", chapter_dir, name), bytes)?;
                         }
                     }
-
                 }
             }
         }
